@@ -59,8 +59,46 @@ genNeuron weights = do
 genLayer :: Int -> Int -> IO Layer
 genLayer size weights = replicateM size (genNeuron weights)
 
+-- Generate 10 random inputs
+inputs = 2
+
+input = replicateM inputs (randomRIO (-10,10) :: IO Input)
+
+objective :: [Float] -> [Float]
+objective = map (\x -> case x >= 0.0 of True -> 1.0; False -> 0.0)
+
+-- Calculate error
+calcError target output = sum . map ((/2) . (^2)) $ zipWith (-) target output
+
+-- output is whether the number is greater than 0.5
+
 main :: IO ()
 main = do
-  layer1 <- genLayer 10 10
+  -- Generate input
+  input <- input
+  putStr "Input: "
+  print input
+
+  -- Generate training data
+  let training = objective input
+  putStr "Objective: "
+  print training
+
+  -- Generate initial network
+  layer1 <- genLayer 2 inputs
   let network = Network [layer1]
-  print $ evalNetwork network [0.1,0.2..1.0]
+
+  -- Evaluate network
+  putStr "Initial output: "
+  let initial = evalNetwork network input
+  print initial
+
+  -- Forward pass
+  let forwardPass = evalNetwork network input
+  
+  -- Calculate error
+  let error = calcError training forwardPass
+  putStr "Error: "
+  print error
+
+  return ()
