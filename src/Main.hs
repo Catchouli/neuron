@@ -50,8 +50,8 @@ evalNetwork (Network layers) inputs = foldl (flip evalLayer) inputs layers
 -- Generates a neuron with randomised weights and bias
 genNeuron :: Int -> IO Neuron
 genNeuron weights = do
-  w <- replicateM weights (randomIO :: IO Weight)
-  b <- randomIO :: IO Weight
+  w <- replicateM weights (randomRIO (-1.0, 1.0) :: IO Weight)
+  b <- randomRIO (-1.0, 1.0) :: IO Weight
   return $ Neuron w b
 
 -- genLayer
@@ -60,7 +60,7 @@ genLayer :: Int -> Int -> IO Layer
 genLayer size weights = replicateM size (genNeuron weights)
 
 -- Generate 10 random inputs
-inputs = 2
+inputs = 1
 
 input = replicateM inputs (randomRIO (-10,10) :: IO Input)
 
@@ -68,7 +68,7 @@ objective :: [Float] -> [Float]
 objective = map (\x -> case x >= 0.0 of True -> 1.0; False -> 0.0)
 
 -- Calculate error
-calcError target output = sum . map ((/2) . (^2)) $ zipWith (-) target output
+calcError target output = sum . map ((/2.0) . (^2)) $ zipWith (-) target output
 
 -- output is whether the number is greater than 0.5
 
@@ -85,8 +85,10 @@ main = do
   print training
 
   -- Generate initial network
-  layer1 <- genLayer 2 inputs
-  let network = Network [layer1]
+  layer1 <- genLayer 100 inputs
+  layern <- replicateM 100 $ genLayer 100 100
+  layer2 <- genLayer 1 100
+  let network = Network $ [layer1] ++ layern ++ [layer2]
 
   -- Evaluate network
   putStr "Initial output: "
@@ -100,5 +102,13 @@ main = do
   let error = calcError training forwardPass
   putStr "Error: "
   print error
+
+  let loop = do
+      l <- getLine
+      let num = read l :: Float
+      print $ evalNetwork  network [num]
+      loop
+
+  loop
 
   return ()
