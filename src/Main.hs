@@ -96,9 +96,38 @@ genNetwork layers inputCount = sequence . map (uncurry genLayer) $ layerDefs
     -- Layer definitions in the form (neuronCount, inputCount)
     layerDefs = zip layers (inputCount:layers)
 
+-- Gradient descent function. Given a network, its inputs, its activations, and its error,
+-- produces a new network corrected through gradient descent.
+gradientDescent :: Network -> Vector R -> [Vector R] -> [Vector R] -> R -> Network
+gradientDescent network input activations error learnRate =
+  map gradientDescent' layerData
+    where
+      -- Get the activations from the previous layer of neurons
+      -- by offsetting the activations with the input at the start
+      -- and discarding the final element
+      previousActivations = input : (init activations)
+      -- Layers zipped with their errors and the previous layer's activation
+      layerData = zip3 network error previousActivations
+      -- Gradient descent for one layer
+      gradientDescent' (Layer weight bias, error, previousActivation) =
+        Layer (weight - weightGradient) (bias - biasGradient)
+          where
+            weightGradient = outer error previousActivation / (realToFrac learnRate)
+            biasGradient = error / (realToFrac learnRate)
+
 testNetwork :: IO Network
 testNetwork = do
   l1 <- genLayer 5 3
   l2 <- genLayer 5 5
   l3 <- genLayer 1 5
   return [l1, l2, l3]
+
+testNetwork2 :: Network
+testNetwork2 = [hiddenLayer, outputLayer]
+  where
+    hiddenLayer = Layer (matrix 2 [0.15, 0.2, 0.25, 0.3]) (vector [0.35, 0.35])
+    outputLayer = Layer (matrix 2 [0.4, 0.45, 0.5, 0.55]) (vector [0.6, 0.6])
+
+testInputs = vector [0.05, 0.1]
+
+trainingData = vector [0.01, 0.99]
