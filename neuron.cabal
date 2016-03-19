@@ -19,3 +19,9 @@ executable neuron
   build-depends:       base >= 4.7 && < 5
                      , random
                      , hmatrix
+                     , sdl2
+                     , linear
+                     , binary
+                     , bytestring
+                     , transformers
+                     , split
