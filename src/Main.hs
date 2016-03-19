@@ -2,113 +2,53 @@ module Main where
 
 import Control.Exception
 import Control.Monad
+import Data.Traversable
 import System.Random
+import Numeric.LinearAlgebra
+import Numeric.LinearAlgebra.Data
 
--- A neural network input
-type Input = Float
+-- Dependent types would be great to represent some of these constraints.
 
--- A neural network output
-type Output = Float
+-- A layer in the neural network. The weights are represented by a matrix with
+-- 1 row for each neuron, and 1 column for each weight. The biases are represented
+-- by a vector. The number of biases must match the number of weights.
+data Layer = Layer (Matrix R) (Vector R) deriving Show
 
--- A neural network weight
-type Weight = Float
+-- A network is a list of layers, where each layer has the same number of weights as
+-- the previous one has neurons. Otherwise, evalNetwork will fail.
+type Network = [Layer]
 
--- A single neuron with the given weights and bias
-data Neuron = Neuron { weights :: [Float], bias :: Float } deriving Show
-
--- A layer of neurons
-type Layer = [Neuron]
-
--- A neural network made up of layers of neurons
-data Network = Network { layers :: [Layer] }
-
--- sigmoid
--- s-curve function, with value 0.5 at 0, tending to 1 at >0, and tending to 0 at <0.
-sigmoid :: Float -> Float
+-- A sigmoid function which is at 0.5 for the input 0, and tends to 1 as the input
+-- increases, and to 0 as the input decreases.
+sigmoid :: Floating f => f -> f
 sigmoid z = 1 / (1 + exp (-z))
 
--- evalNeuron
--- Evaluates a neuron against a set of inputs, returning the outputs.
-evalNeuron :: Neuron -> [Input] -> Output
-evalNeuron (Neuron weights bias) inputs = sigmoid (dot + bias)
-  where
-    dot = assert (length weights == length inputs) (sum . zipWith (*) weights $ inputs)
+-- Evaluates a layer of the neural network given a set of inputs. The number of inputs
+-- must match the number of weights in the input network or this function will fail
+-- with an exception.
+evalLayer :: Layer -> Vector R -> Vector R
+evalLayer (Layer weights biases) inputs = sigmoid ((weights #> inputs) + biases)
 
--- evalLayer
--- Takes a layer of neurons, and a list of inputs, and connects each input to
--- each neuron in the layer. It  then returns the result of applying each
--- neuron to each input.
-evalLayer :: [Neuron] -> [Input] -> [Output]
-evalLayer neurons inputs = map (flip evalNeuron inputs) neurons
+-- Evaluates a neural network by folding a set of inputs through each layer.
+-- The number of inputs must match the number of weights in the first layer,
+-- and the number of elements in the output vector depends on the number of neurons
+-- in the final layer of the network.
+evalNetwork :: Network -> Vector R -> Vector R
+evalNetwork layers inputs = foldl (flip evalLayer) inputs layers
 
--- evalNetwork
--- Takes a neural network and evalues it with the given input values.
-evalNetwork :: Network -> [Input] -> [Output]
-evalNetwork (Network layers) inputs = foldl (flip evalLayer) inputs layers
-
--- genNeuron
--- Generates a neuron with randomised weights and bias
-genNeuron :: Int -> IO Neuron
-genNeuron weights = do
-  w <- replicateM weights (randomRIO (-1.0, 1.0) :: IO Weight)
-  b <- randomRIO (-1.0, 1.0) :: IO Weight
-  return $ Neuron w b
-
--- genLayer
--- Generates a layer of neurons with random biases
+-- Generates a layer with a given number of neurons with inputCount weights.
+-- Weights are randomised between 0 and 1.
 genLayer :: Int -> Int -> IO Layer
-genLayer size weights = replicateM size (genNeuron weights)
+genLayer neurons inputCount = do
+  weights <- replicateM (neurons * inputCount) (randomRIO (0.0, 1.0) :: IO R)
+  biases <- replicateM (neurons) (randomRIO (0.0, 1.0) :: IO R)
+  return $ Layer (matrix inputCount weights) (vector biases)
 
--- Generate 10 random inputs
-inputs = 1
-
-input = replicateM inputs (randomRIO (-10,10) :: IO Input)
-
-objective :: [Float] -> [Float]
-objective = map (\x -> case x >= 0.0 of True -> 1.0; False -> 0.0)
-
--- Calculate error
-calcError target output = sum . map ((/2.0) . (^2)) $ zipWith (-) target output
-
--- output is whether the number is greater than 0.5
-
-main :: IO ()
-main = do
-  -- Generate input
-  input <- input
-  putStr "Input: "
-  print input
-
-  -- Generate training data
-  let training = objective input
-  putStr "Objective: "
-  print training
-
-  -- Generate initial network
-  layer1 <- genLayer 100 inputs
-  layern <- replicateM 100 $ genLayer 100 100
-  layer2 <- genLayer 1 100
-  let network = Network $ [layer1] ++ layern ++ [layer2]
-
-  -- Evaluate network
-  putStr "Initial output: "
-  let initial = evalNetwork network input
-  print initial
-
-  -- Forward pass
-  let forwardPass = evalNetwork network input
-  
-  -- Calculate error
-  let error = calcError training forwardPass
-  putStr "Error: "
-  print error
-
-  let loop = do
-      l <- getLine
-      let num = read l :: Float
-      print $ evalNetwork  network [num]
-      loop
-
-  loop
-
-  return ()
+-- Generates a network with the specified number of neurons in each layer,
+-- and the number of inputs to the network.
+-- Initialised with random weights and biases as in genLayer.
+genNetwork :: [Int] -> Int -> IO Network
+genNetwork layers inputCount = sequence . map (uncurry genLayer) $ layerDefs
+  where
+    -- Layer definitions in the form (neuronCount, inputCount)
+    layerDefs = zip layers (inputCount:layers)
