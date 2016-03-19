@@ -9,6 +9,7 @@ import System.Random
 import Numeric.LinearAlgebra
 import Numeric.LinearAlgebra.Data
 import SDL
+import Debug.Trace
 import qualified Linear
 
 import Neural
@@ -18,13 +19,13 @@ import MNIST
 -- Weights are randomised between 0 and 1.
 genLayer :: Int -> Int -> IO Layer
 genLayer neurons inputCount = do
-  weights <- replicateM (neurons * inputCount) (randomRIO (0.0, 1.0) :: IO R)
-  biases <- replicateM (neurons) (randomRIO (0.0, 1.0) :: IO R)
+  weights <- replicateM (neurons * inputCount) (randomRIO (-0.2, 0.2) :: IO R)
+  biases <- replicateM (neurons) (randomRIO (-0.2, 0.2) :: IO R)
   return $ Layer (matrix inputCount weights) (vector biases)
 
 -- Generates a network with the specified number of neurons in each layer,
 -- and the number of inputs to the network.
--- Initialised with random weights and biases as in genLayer.
+-- Initialised with random7004 weights and biases as in genLayer.
 genNetwork :: [Int] -> Int -> IO Network
 genNetwork layers inputCount = sequence . map (uncurry genLayer) $ layerDefs
   where
@@ -59,17 +60,26 @@ trainNet = do
 
   let image = head imageData
   let input = vector (map fromIntegral image)
-  let training = head labels
+  let correctNumber = fromIntegral . head $ labels
+  let training = vector $ map (\i -> if i == correctNumber then 1.0 else 0.0) [1..10]
 
   hiddenLayer <- genLayer 20 (width * height)
   outputLayer <- genLayer 10 20
 
-  let network = [hiddenLayer, outputLayer]
+  let initialNetwork = [hiddenLayer, outputLayer]
 
-  let a = evalNetwork network input
-  print a
+  let loop net i err =
+        case i > 1000 || err < 0.1 of
+          True  -> net
+          False -> trace (show $ sumElements (last error)) $ loop nextNet (i+1) (sumElements (last error))
+            where
+              output = evalNetwork net input
+              error = evalNetworkError net output input training
+              nextNet = gradientDescent net input (map fst output) error 0.1
 
-  return a
+  let trainedNet = loop initialNetwork 0 1000
+
+  return (input, initialNetwork, trainedNet)
 
 -- Make a window and show MNIST image
 window = do

@@ -59,7 +59,7 @@ evalOutputError output weightedInput inputs training = (output - training) * sig
 -- and error.
 evalLayerError :: Vector R -> Matrix R -> Vector R -> Vector R
 evalLayerError weightedCost nextLayerWeights nextLayerError =
-  ((tr' nextLayerWeights) #> nextLayerError) * sigmoid' weightedCost
+  ((tr' nextLayerWeights) #> nextLayerError) * (sigmoid' weightedCost)
 
 -- Evaluates the error for each layer in the network by means of backpropogation.
 evalNetworkError :: Network -> [(Vector R, Vector R)] -> Vector R -> Vector R -> [Vector R]
@@ -101,5 +101,5 @@ gradientDescent network input activations error learnRate =
       gradientDescent' (Layer weight bias, error, previousActivation) =
         Layer (weight - weightGradient) (bias - biasGradient)
           where
-            weightGradient = outer error previousActivation / (realToFrac learnRate)
-            biasGradient = error / (realToFrac learnRate)
+            weightGradient = outer error previousActivation * (realToFrac learnRate)
+            biasGradient = error * (realToFrac learnRate)
