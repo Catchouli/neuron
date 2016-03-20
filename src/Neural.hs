@@ -152,8 +152,6 @@ gradientDescentM network input activations error learnRate =
       previousActivations = input : (init activations)
       -- Layers zipped with their errors and the previous layer's activation
       layerData = zip3 network error previousActivations
-      -- learnRate as fractional
-      learnRateF = realToFrac learnRate
       -- Gradient descent for one layer
       gradientDescent' (Layer weight bias, error, previousActivation) =
         -- New layer is evaluated by calculating the gradient for the weight and bias and
