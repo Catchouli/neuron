@@ -1,8 +1,6 @@
 module Neural
   ( Layer(Layer)
   , Network
-  , sigmoid
-  , sigmoid'
   , evalLayer
   , evalLayerM
   , evalNetwork
@@ -15,7 +13,6 @@ module Neural
   , evalNetworkErrorM
   , gradientDescent
   , gradientDescentM
-  , sumColumns
   )
 where
 
@@ -66,7 +63,6 @@ evalLayerM (Layer weights biases) inputs = (sigmoid weightedInputs, weightedInpu
   where
     inputRows = rows inputs
     biasMatrix = fromColumns . replicate inputRows $ biases
-    --weightedInputs = tr' $ (weights <> tr' inputs) + biasMatrix
     weightedInputs = tr' $ (weights <> tr' inputs) + biasMatrix
 
 -- Feed forward the given function (e.g. evalLayer) over the network
