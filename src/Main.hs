@@ -79,7 +79,35 @@ trainNet = do
 
   let trainedNet = loop initialNetwork 0 1000
 
-  return (input, initialNetwork, trainedNet)
+  return (input, initialNetwork, trainedNet, training)
+
+-- Train neural network
+trainNetM = do
+  (imageCount, width, height, imageData) <- readMNISTImages "train-images-idx3-ubyte"
+  (labelCount, labels) <- readMNISTLabels "train-labels-idx1-ubyte"
+
+  let image = head imageData
+  let input = fromRows [vector (map fromIntegral image)]
+  let correctNumber = fromIntegral . head $ labels
+  let training = fromRows [vector $ map (\i -> if i == correctNumber then 1.0 else 0.0) [1..10]]
+
+  hiddenLayer <- genLayer 20 (width * height)
+  outputLayer <- genLayer 10 20
+
+  let initialNetwork = [hiddenLayer, outputLayer]
+
+  let loop net i err =
+        case i > 100000 || err < 0.1 of
+          True  -> net
+          False -> trace (show $ sumElements (last error)) $ loop nextNet (i+1) (sumElements (last error))
+            where
+              output = evalNetworkM net input
+              error = evalNetworkErrorM net output input training
+              nextNet = gradientDescentM net input (map fst output) error 0.1
+
+  let trainedNet = loop initialNetwork 0 1000
+
+  return (input, initialNetwork, trainedNet, training)
 
 -- Make a window and show MNIST image
 window = do

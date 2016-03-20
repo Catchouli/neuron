@@ -1,12 +1,20 @@
 module Neural
   ( Layer(Layer)
   , Network
+  , sigmoid
+  , sigmoid'
   , evalLayer
+  , evalLayerM
   , evalNetwork
+  , evalNetworkM
   , evalOutputError
+  , evalOutputErrorM
   , evalLayerError
+  , evalLayerErrorM
   , evalNetworkError
+  , evalNetworkErrorM
   , gradientDescent
+  , gradientDescentM
   )
 where
 
@@ -24,6 +32,14 @@ data Layer = Layer (Matrix R) (Vector R) deriving Show
 -- the previous one has neurons. Otherwise, evalNetwork will fail.
 type Network = [Layer]
 
+-- A utility function that converts a vector to a row matrix
+vecToMat :: Vector R -> Matrix R
+vecToMat = fromRows . (:[])
+
+-- A utility function that sums the colums in a matrix to produce a row vector
+sumColumns :: Matrix R -> Vector R
+sumColumns m = (vector . replicate (rows m) $ 1) <# m
+
 -- A sigmoid function which is at 0.5 for the input 0, and tends to 1 as the input
 -- increases, and to 0 as the input decreases.
 sigmoid :: Floating f => f -> f
@@ -37,9 +53,26 @@ sigmoid' z = sigmoid z * (1 - sigmoid z)
 -- must match the number of weights in the input network or this function will fail
 -- with an exception. Returns the outputs as well as the weighted inputs.
 evalLayer :: Layer -> Vector R -> (Vector R, Vector R)
-evalLayer (Layer weights biases) inputs = (sigmoid weightedInputs, weightedInputs)
+evalLayer layer inputs = (flatten output, flatten weightedInput)
   where
-    weightedInputs = (weights #> inputs) + biases
+    (output, weightedInput) = evalLayerM layer (fromRows [inputs])
+
+-- Evaluates a layer of the neural network given a set of inputs. Contrary to evalLayer,
+-- the set of inputs is provided as a matrix where each row is a vector of inputs as
+-- given in evalLayer.
+evalLayerM :: Layer -> Matrix R -> (Matrix R, Matrix R)
+evalLayerM (Layer weights biases) inputs = (sigmoid weightedInputs, weightedInputs)
+  where
+    inputRows = rows inputs
+    biasMatrix = fromColumns . replicate inputRows $ biases
+    --weightedInputs = tr' $ (weights <> tr' inputs) + biasMatrix
+    weightedInputs = tr' $ (weights <> tr' inputs) + biasMatrix
+
+-- Feed forward the given function (e.g. evalLayer) over the network
+feedForward :: (Layer -> a -> (a, a)) -> a -> Network -> [(a, a)]
+feedForward f inputs network = tail . reverse $ feedForward' f inputs network
+  where
+    feedForward' f inputs network = foldl (\acc@((a,_):_) l -> (f l a) : acc) [(inputs, undefined)] network
 
 -- Evaluates a neural network by folding a set of inputs through each layer.
 -- The number of inputs must match the number of weights in the first layer,
@@ -47,19 +80,31 @@ evalLayer (Layer weights biases) inputs = (sigmoid weightedInputs, weightedInput
 -- in the final layer of the network. Returns the output and weighted input of each
 -- layer in the network.
 evalNetwork :: Network -> Vector R -> [(Vector R, Vector R)]
-evalNetwork network inputs = tail . reverse $ feedForward inputs network
-  where
-    feedForward inputs network = foldl (\acc@((a,_):_) l -> (evalLayer l a) : acc) [(inputs, vector [])] network
+evalNetwork network inputs = feedForward evalLayer inputs network
+
+-- Evaluates a neural network. Contrary to evalNetwork, the input is taken in the same form
+-- as evalLayerM, i.e. a matrix where the rows are a single input vector.
+evalNetworkM :: Network -> Matrix R -> [(Matrix R, Matrix R)]
+evalNetworkM network inputs = feedForward evalLayerM inputs network
 
 -- Evaluates the error in the output layer of a network
 evalOutputError :: Vector R -> Vector R -> Vector R -> Vector R -> Vector R
 evalOutputError output weightedInput inputs training = (output - training) * sigmoid' weightedInput
+
+-- Evaluates the error in the output layer of a network. Input is a matrix where rows are inputs.
+evalOutputErrorM :: Matrix R -> Matrix R -> Matrix R -> Matrix R -> Matrix R
+evalOutputErrorM output weightedInput inputs training = (output - training) * sigmoid' weightedInput
 
 -- Evaluates the error in a layer of a network given the weighted cost, and the next layer's weight
 -- and error.
 evalLayerError :: Vector R -> Matrix R -> Vector R -> Vector R
 evalLayerError weightedCost nextLayerWeights nextLayerError =
   ((tr' nextLayerWeights) #> nextLayerError) * (sigmoid' weightedCost)
+
+-- Evaluates the error in a layer like evalLayerError, but takes a matrix of inputs as rows.
+evalLayerErrorM :: Matrix R -> Matrix R -> Matrix R -> Matrix R
+evalLayerErrorM weightedCost nextLayerWeights nextLayerError =
+  (nextLayerError <> nextLayerWeights) * (sigmoid' weightedCost)
 
 -- Evaluates the error for each layer in the network by means of backpropogation.
 evalNetworkError :: Network -> [(Vector R, Vector R)] -> Vector R -> Vector R -> [Vector R]
@@ -85,10 +130,35 @@ evalNetworkError network networkValues inputs training = map fst backPropogation
     backPropogate = \acc@((loe,lw):_) (Layer w _, (_,z)) -> (evalLayerError z lw loe, w):acc
     backPropogation = foldl backPropogate acc (tail reverseLayerData)
 
+-- Evaluates the error for each layer in the network by means of backpropogation.
+evalNetworkErrorM :: Network -> [(Matrix R, Matrix R)] -> Matrix R -> Matrix R -> [Matrix R]
+evalNetworkErrorM network networkValues inputs training = map fst backPropogation
+  where
+    -- The layers of the network in reverse order
+    reverseNetwork = reverse network
+    -- The activations of the layers of the network in reverse order
+    reverseLayerVals = reverse networkValues
+    -- (reverse layers, reverse activations)
+    reverseLayerData = zip reverseNetwork reverseLayerVals
+    -- The activations of the output layer of the network
+    outputLayer = tail reverseLayerVals
+    -- The weights of the output layer
+    Layer outputWeights _ = head reverseNetwork
+    -- The activations and weighted inputs of the output layer
+    (outputValues, outputLayerWeightedInput) = head reverseLayerVals
+    -- The error of the output layer
+    outputError = evalOutputErrorM outputValues outputLayerWeightedInput inputs training
+    -- An accumulator for backpropogation, started with the output layer's error
+    acc = [(outputError, outputWeights)]
+    -- The backpropogation algorithhm (apply evalOutputError to each layer in reverse order)
+    backPropogate = \acc@((loe,lw):_) (Layer w _, (_,z)) -> (evalLayerErrorM z lw loe, w):acc
+    backPropogation = foldl backPropogate acc (tail reverseLayerData)
+
 -- Gradient descent function. Given a network, its inputs, its activations, and its error,
 -- produces a new network corrected through gradient descent.
 gradientDescent :: Network -> Vector R -> [Vector R] -> [Vector R] -> R -> Network
 gradientDescent network input activations error learnRate =
+--  gradientDescentM network (vecToMat input) (map vecToMat activations) (map vecToMat error) learnRate
   map gradientDescent' layerData
     where
       -- Get the activations from the previous layer of neurons
@@ -103,3 +173,24 @@ gradientDescent network input activations error learnRate =
           where
             weightGradient = outer error previousActivation * (realToFrac learnRate)
             biasGradient = error * (realToFrac learnRate)
+
+-- Gradient descent function. Given a network, its inputs, its activations, and its error,
+-- produces a new network corrected through gradient descent.
+gradientDescentM :: Network -> Matrix R -> [Matrix R] -> [Matrix R] -> R -> Network
+gradientDescentM network input activations error learnRate =
+  map gradientDescent' layerData
+    where
+      -- Get the activations from the previous layer of neurons
+      -- by offsetting the activations with the input at the start
+      -- and discarding the final element
+      previousActivations = input : (init activations)
+      -- Layers zipped with their errors and the previous layer's activation
+      layerData = zip3 network error previousActivations
+      -- Gradient descent for one layer
+      gradientDescent' (Layer weight bias, error, previousActivation) =
+        Layer (weight - weightGradient) (bias - biasGradient)
+          where
+            -- Calculate gradient for each rate
+            weightGradient = (tr' error <> previousActivation) * (realToFrac learnRate)
+            -- Sum the bias gradient components for each neuron (the columns)
+            biasGradient = (sumColumns $ tr' error) * (realToFrac learnRate)
