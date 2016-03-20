@@ -15,6 +15,7 @@ module Neural
   , evalNetworkErrorM
   , gradientDescent
   , gradientDescentM
+  , sumColumns
   )
 where
 
@@ -108,27 +109,10 @@ evalLayerErrorM weightedCost nextLayerWeights nextLayerError =
 
 -- Evaluates the error for each layer in the network by means of backpropogation.
 evalNetworkError :: Network -> [(Vector R, Vector R)] -> Vector R -> Vector R -> [Vector R]
-evalNetworkError network networkValues inputs training = map fst backPropogation
-  where
-    -- The layers of the network in reverse order
-    reverseNetwork = reverse network
-    -- The activations of the layers of the network in reverse order
-    reverseLayerVals = reverse networkValues
-    -- (reverse layers, reverse activations)
-    reverseLayerData = zip reverseNetwork reverseLayerVals
-    -- The activations of the output layer of the network
-    outputLayer = tail reverseLayerVals
-    -- The weights of the output layer
-    Layer outputWeights _ = head reverseNetwork
-    -- The activations and weighted inputs of the output layer
-    (outputValues, outputLayerWeightedInput) = head reverseLayerVals
-    -- The error of the output layer
-    outputError = evalOutputError outputValues outputLayerWeightedInput inputs training
-    -- An accumulator for backpropogation, started with the output layer's error
-    acc = [(outputError, outputWeights)]
-    -- The backpropogation algorithhm (apply evalOutputError to each layer in reverse order)
-    backPropogate = \acc@((loe,lw):_) (Layer w _, (_,z)) -> (evalLayerError z lw loe, w):acc
-    backPropogation = foldl backPropogate acc (tail reverseLayerData)
+evalNetworkError network networkValues inputs training =
+  map flatten $ evalNetworkErrorM network networkValuesM (vecToMat inputs) (vecToMat training)
+    where
+      networkValuesM = map (\(a,b) -> (vecToMat a, vecToMat b)) networkValues
 
 -- Evaluates the error for each layer in the network by means of backpropogation.
 evalNetworkErrorM :: Network -> [(Matrix R, Matrix R)] -> Matrix R -> Matrix R -> [Matrix R]
@@ -158,21 +142,7 @@ evalNetworkErrorM network networkValues inputs training = map fst backPropogatio
 -- produces a new network corrected through gradient descent.
 gradientDescent :: Network -> Vector R -> [Vector R] -> [Vector R] -> R -> Network
 gradientDescent network input activations error learnRate =
---  gradientDescentM network (vecToMat input) (map vecToMat activations) (map vecToMat error) learnRate
-  map gradientDescent' layerData
-    where
-      -- Get the activations from the previous layer of neurons
-      -- by offsetting the activations with the input at the start
-      -- and discarding the final element
-      previousActivations = input : (init activations)
-      -- Layers zipped with their errors and the previous layer's activation
-      layerData = zip3 network error previousActivations
-      -- Gradient descent for one layer
-      gradientDescent' (Layer weight bias, error, previousActivation) =
-        Layer (weight - weightGradient) (bias - biasGradient)
-          where
-            weightGradient = outer error previousActivation * (realToFrac learnRate)
-            biasGradient = error * (realToFrac learnRate)
+  gradientDescentM network (vecToMat input) (map vecToMat activations) (map vecToMat error) learnRate
 
 -- Gradient descent function. Given a network, its inputs, its activations, and its error,
 -- produces a new network corrected through gradient descent.
@@ -186,11 +156,18 @@ gradientDescentM network input activations error learnRate =
       previousActivations = input : (init activations)
       -- Layers zipped with their errors and the previous layer's activation
       layerData = zip3 network error previousActivations
+      -- learnRate as fractional
+      learnRateF = realToFrac learnRate
       -- Gradient descent for one layer
       gradientDescent' (Layer weight bias, error, previousActivation) =
-        Layer (weight - weightGradient) (bias - biasGradient)
-          where
-            -- Calculate gradient for each rate
-            weightGradient = (tr' error <> previousActivation) * (realToFrac learnRate)
-            -- Sum the bias gradient components for each neuron (the columns)
-            biasGradient = (sumColumns $ tr' error) * (realToFrac learnRate)
+        -- New layer is evaluated by calculating the gradient for the weight and bias and
+        -- subtracting gradient * learnRate from the current value
+        Layer
+          (weight - (weightGradients * realToFrac learnRate))
+          (bias - (biasGradients * realToFrac learnRate))
+            where
+              -- Calculate gradient for each rate
+              -- Calculated using the kronecker product, a generalisation of tensor product to matrices
+              weightGradients = kronecker previousActivation (tr' error)
+              -- Sum the bias gradient components for each neuron (the columns)
+              biasGradients = sumColumns error
