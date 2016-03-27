@@ -13,6 +13,8 @@ module Neural
   , evalNetworkErrorM
   , gradientDescent
   , gradientDescentM
+  , sumColumns
+  , vecToMat
   )
 where
 
@@ -162,6 +164,8 @@ gradientDescentM network input activations error learnRate =
             where
               -- Calculate gradient for each rate
               -- Calculated using the kronecker product, a generalisation of tensor product to matrices
-              weightGradients = kronecker previousActivation (tr' error)
+              --weightGradients = kronecker previousActivation (tr' error)
+              --weightGradients = (previousActivation <> (tr' error)) -- / (fromIntegral $ cols previousActivation)
+              weightGradients = (tr' error <> previousActivation) / (fromIntegral . cols $ previousActivation)
               -- Sum the bias gradient components for each neuron (the columns)
-              biasGradients = sumColumns error
+              biasGradients = sumColumns error / (fromIntegral . size $ bias)

@@ -44,9 +44,9 @@ readMNISTLabels filename = do
   file <- BS.readFile filename
 
   let (magicNumber, numLabels) = flip runGet file $ do
-      magicNumber <- getWord32be
-      numLabels <- getWord32be
-      return (magicNumber, numLabels)
+        magicNumber <- getWord32be
+        numLabels <- getWord32be
+        return (magicNumber, numLabels)
 
   assert (magicNumber == 2049) (return ())
 
